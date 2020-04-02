@@ -1,0 +1,71 @@
+resources:
+
+- name: platform-automation-tasks
+  type: s3
+  source:
+    access_key_id: ((s3_access_key_id))
+    bucket: ((s3_buckets_pivnet_products))
+    endpoint: ((s3_endpoint))
+    secret_access_key: ((s3_secret_access_key))
+    regexp:  platform-automation/platform-automation-tasks-(.*).zip
+
+- name: platform-automation-image
+  type: s3
+  source:
+    access_key_id: ((s3_access_key_id))
+    bucket: ((s3_buckets_pivnet_products))
+    endpoint: ((s3_endpoint))
+    secret_access_key: ((s3_secret_access_key))
+    regexp: platform-automation/platform-automation-image-(.*).tgz
+
+- name: uaac
+  type: docker-image
+  source:
+    repository: governmentpaas/cf-uaac
+
+
+- name: config
+  type: git
+  source:
+    uri: ((pipeline-repo))
+    private_key: ((git.private_key))
+    branch: master
+
+credhub-interpolate: &interpolate-creds
+  image: platform-automation-image
+  file: platform-automation-tasks/tasks/credhub-interpolate.yml
+  params:
+    CREDHUB_CLIENT: ((credhub-client))
+    CREDHUB_SECRET: ((credhub-secret))
+    CREDHUB_SERVER: ((credhub-server))
+    CREDHUB_CA_CERT: ((credhub-ca.ca))
+    PREFIX: /concourse/((foundation))
+    INTERPOLATION_PATHS: ((foundation))
+  input_mapping:
+    files: config
+  output_mapping:
+    interpolated-files: interpolated-creds
+
+jobs:
+- name: uaa-user
+  serial: true
+  plan:
+    - get: platform-automation-image
+      params:
+        globs: ["*image*.tgz"]
+        unpack: true
+    - get: platform-automation-tasks
+      params:
+        globs: ["*tasks*.zip"]
+        unpack: true
+    - get: uaac
+    - get: config
+    - task: credhub-interpolate
+      <<: *interpolate-creds
+    - task: uaa-user
+      image: uaac
+      file: config/tasks/create-user-task.yml
+      params:
+        ENV_FILE: ((foundation))/env/env.yml
+      input_mapping:
+        env: interpolated-creds

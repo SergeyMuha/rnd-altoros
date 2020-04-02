@@ -1,0 +1,27 @@
+---
+platform: linux
+
+inputs:
+- name: env
+- name: config
+
+params:
+  ENV_FILE:
+run:
+  path: sh
+  args:
+  - "-c"
+  - |
+    apk add curl
+    curl -s https://api.github.com/repos/pivotal-cf/om/releases/latest \
+    | grep "browser_download_url.*/om-linux-.*tar.gz" \
+    | cut -d : -f 2,3 \
+    | tr -d \" \
+    | xargs wget -q
+    tar -zxvf om-linux-4.6.0.tar.gz
+    mv ./om /usr/local/bin/om
+    eval "$(om --env env/"${ENV_FILE}" bosh-env)"
+    uaac target $BOSH_ENVIRONMENT:8443 --skip-ssl-validation
+    uaac token client get  bosh_admin_client \
+    -s $(om --env env/"${ENV_FILE}" curl -s --path  /api/v0/deployed/director/credentials/uaa_bosh_client_credentials | grep password | cut -d : -f 2,3 | tr -d \")
+    uaac client update $(om --env env/"${ENV_FILE}" curl -s --path /api/v0/deployed/products | grep '"guid": "prometheus-dev' |  cut -d : -f 2,3 | tr -d  \" | tr -d , )  --authorities credhub.write,credhub.read,bosh.read
